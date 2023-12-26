@@ -1,3 +1,5 @@
+import math
+
 import torch
 import torch.nn as nn
 from torch_geometric.nn import MessagePassing
@@ -58,13 +60,13 @@ class SHGNN(MessagePassing):
             torch.Tensor: _description_
         """
         # TODO prealloc
-        y_0_0 = 1 / (2 * torch.sqrt(torch.pi)) * torch.ones_like(theta)
+        y_0_0 = 1 / (2 * math.sqrt(torch.pi)) * torch.ones_like(theta)
         y_1_n1 = (
-            1 / 2 * torch.sqrt(3 / (2 * torch.pi)) * torch.sin(theta) * torch.sin(phi)
+            1 / 2 * math.sqrt(3 / (2 * torch.pi)) * torch.sin(theta) * torch.sin(phi)
         )
-        y_1_0 = 1 / 2 * torch.sqrt(3 / torch.pi) * torch.cos(theta)
+        y_1_0 = 1 / 2 * math.sqrt(3 / torch.pi) * torch.cos(theta)
         y_1_1 = (
-            -1 / 2 * torch.sqrt(3 / (2 * torch.pi)) * torch.sin(theta) * torch.cos(phi)
+            -1 / 2 * math.sqrt(3 / (2 * torch.pi)) * torch.sin(theta) * torch.cos(phi)
         )
 
         return torch.stack([y_0_0, y_1_n1, y_1_0, y_1_1], dim=-1)
@@ -73,7 +75,7 @@ class SHGNN(MessagePassing):
         self,
         s_i: torch.Tensor,
         s_j: torch.Tensor,
-        angles_j: torch.Tensor,
+        edge_attr: torch.Tensor,
     ) -> torch.Tensor:
         """
         Calculate the contribution of each neighbor to the central node. The contribution rule is based on
@@ -90,19 +92,23 @@ class SHGNN(MessagePassing):
         Returns:
             torch.Tensor: w_{ij}^l * (s_j - s_i) for each spherical harmonic weight l
         """
-        theta, phi = angles_j
-        harmonics = SHGNN.spherical_harmonics(theta, phi)  # [num_edges, 4]
+        d = s_j.shape[-1]
+        n_channels = 4
 
-        # Broadcast to get the weighted difference w_{ij} * (s_j - s_i) for each channel
-        # [num_edges, 4] * [num_edges, 1] -> [num_edges, 4]
-        return (s_j - s_i) * harmonics
+        theta = edge_attr[:, 1]
+        phi = edge_attr[:, 2]
+
+        harmonics = SHGNN.spherical_harmonics(theta, phi)  # [num_edges, 4]
+        Ys = (s_j - s_i)[:, :, None] * harmonics[:, None, :]
+        return Ys.view(-1, d * n_channels)
 
     def forward(
         self,
         s: torch.Tensor,
-        h: torch.Tensor | None,
-        angles: torch.Tensor,
+        # h: torch.Tensor | None,
+        # angles: torch.Tensor,
         edge_index: torch.Tensor,
+        edge_attr: torch.Tensor,
     ) -> torch.Tensor:
         """
         Compute the forward pass of the spherical harmonic graph neural network by performing message
@@ -118,12 +124,7 @@ class SHGNN(MessagePassing):
         Returns:
             torch.Tensor: _description_
         """
-        z = self.propagate(edge_index, s=s, angles=angles)
+        z = self.propagate(edge_index, s=s, edge_attr=edge_attr)
+        v = torch.hstack([s, z])
 
-        match h:
-            case None:
-                v = torch.stack([s, z], dim=-1)
-            case torch.Tensor():
-                v = torch.stack([s, z, h], dim=-1)
-
-        return s + self.model(v)
+        return self.model(v)

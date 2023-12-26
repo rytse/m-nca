@@ -25,7 +25,7 @@ test_dataset.transform = T.Compose(
 )
 test_loader = DataLoader(test_dataset, batch_size=32)
 
-mlp = MLP(3, 1, 1, 8)
+mlp = MLP(15, 1, 1, 16)
 shgnn = SHGNN(mlp)
 
 optimizer = optim.Adam(shgnn.parameters(), lr=0.01)
@@ -38,8 +38,8 @@ def train():
 
     for data in train_loader:
         optimizer.zero_grad()
-        out = shgnn(data.pos, None, data.edge_attr[:, 1:], data.edge_index)
-        loss = criterion(out, data.y)
+        out = shgnn(data.pos, data.edge_index, data.edge_attr)
+        loss = criterion(out, torch.norm(data.pos, dim=1).unsqueeze(-1))
         loss.backward()
         optimizer.step()
 
@@ -50,5 +50,4 @@ def train():
 
 for epoch in range(1, 51):
     loss = train()
-    # test_acc = test()
     print(f"Epoch: {epoch:02d}, Loss: {loss:.4f}")  # , Test Acc: {test_acc:.4f}")
